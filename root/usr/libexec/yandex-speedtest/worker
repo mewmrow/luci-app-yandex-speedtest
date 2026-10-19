@@ -94,10 +94,10 @@ get_ip() {
 get_probes() {
 	PROBES_RAW=$(ycurl -m 8 "$API/get-probes" 2>/dev/null | sed -e 's#\\/#/#g' -e 's#\\u0026#\&#g')
 	DOWN_URL=$(printf '%s' "$PROBES_RAW" |
-		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net/probes/50mb\?[^"[:space:]\\]*' |
+		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net(/[A-Za-z0-9_-]+)?/probes/50mb\?[^"[:space:]\\]*' |
 		grep -v 'timeout=' | head -n1)
 	UP_URL=$(printf '%s' "$PROBES_RAW" |
-		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net/upload\?[^"[:space:]\\]*' |
+		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net(/[A-Za-z0-9_-]+)?/upload\?[^"[:space:]\\]*' |
 		grep -v 'timeout=' | head -n1)
 }
 
