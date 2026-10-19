@@ -78,7 +78,7 @@ setup_iface() {
 }
 
 get_ip() {
-	r=$(ycurl -m 5 "$API/ip" 2>/dev/null | head -c 256)
+	r=$(ycurl -m 5 "$API/ip" 2>/dev/null | dd bs=256 count=1 2>/dev/null)
 	v4=$(echo "$r" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
 	if [ -n "$v4" ]; then
 		ok=1
@@ -142,20 +142,25 @@ dl_stream() { # url deadline outfile
 }
 
 ul_stream() { # url deadline outfile
-	size=1048576
+	size=262144
 	while [ ! -e "$STOP" ]; do
 		now_cs
 		rem=$(($2 - NOW))
 		[ "$rem" -ge 50 ] || break
-		head -c "$size" /dev/zero |
+		r=$(dd if=/dev/zero bs=65536 count=$((size / 65536)) 2>/dev/null |
 			ycurl -f -o /dev/null -m "$((rem / 100)).$((rem % 100 / 10))" \
 				-X POST -T - -H 'Expect:' -H 'Content-Type: application/octet-stream' \
-				-w '%{size_upload} %{time_total} %{time_pretransfer}\n' "$1" >> "$3" 2>/dev/null
+				-w '%{size_upload} %{time_total} %{time_pretransfer}' "$1" 2>/dev/null)
 		rc=$?
-		[ "$rc" = 0 ] || [ "$rc" = 28 ] || break
+		[ "$rc" = 0 ] || break
+
+		# only finished requests count: a request cut by the deadline has
+		# "uploaded" bytes that are still sitting in the socket buffer
+		echo "$r" >> "$3"
 
 		# grow the request until one takes about two seconds
-		t=$(tail -n1 "$3" | cut -d' ' -f2)
+		t=${r#* }
+		t=${t%% *}
 		t=${t%%.*}
 		[ "${t:-0}" -lt 2 ] && [ "$size" -lt 33554432 ] && size=$((size * 2))
 	done
@@ -279,14 +284,14 @@ probe() {
 	echo "iface: ${CURL_IF:-default route}"
 	echo
 	echo "== $API/ip"
-	ycurl -m 5 "$API/ip" 2>&1 | head -c 512
+	ycurl -m 5 "$API/ip" 2>&1 | dd bs=512 count=1 2>/dev/null
 	echo
 	get_ip
 	echo "parsed ip: ${IP:-none}"
 	echo
 	echo "== $API/get-probes"
 	get_probes
-	printf '%s\n' "$PROBES_RAW" | head -c 4000
+	printf '%s\n' "$PROBES_RAW" | dd bs=4000 count=1 2>/dev/null
 	echo
 	echo "parsed download: ${DOWN_URL:-none}"
 	echo "parsed upload:   ${UP_URL:-none}"
@@ -301,7 +306,7 @@ probe() {
 	echo "== download 3 s"
 	ycurl -o /dev/null -m 3 -w 'http %{http_code}, %{size_download} bytes, %{time_total} s, %{remote_ip}\n' "$DOWN_URL" 2>&1
 	echo "== upload 1 MiB"
-	head -c 1048576 /dev/zero |
+	dd if=/dev/zero bs=65536 count=16 2>/dev/null |
 		ycurl -o /dev/null -m 10 -X POST -T - -H 'Expect:' -H 'Content-Type: application/octet-stream' \
 			-w 'http %{http_code}, %{size_upload} bytes, %{time_total} s, %{remote_ip}\n' "$UP_URL" 2>&1
 }

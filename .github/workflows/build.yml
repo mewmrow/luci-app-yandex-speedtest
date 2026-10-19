@@ -68,6 +68,17 @@ jobs:
           ls -la out
           test -n "$(ls out)"
 
+      - name: Show package contents
+        run: |
+          for f in out/*; do
+            echo "== ${f#out/}"
+            case "$f" in
+            *.ipk) tar -xzOf "$f" ./data.tar.gz | tar -tvz ;;
+            *.apk) sdk/staging_dir/host/bin/apk adbdump "$f" | grep -vE '^ *(hash|digest|unique-id):' | head -n 150 || true ;;
+            esac
+          done | tee contents.txt
+          echo "::notice title=Package contents::$(sed -e 's/%/%25/g' contents.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+
       - uses: actions/upload-artifact@v4
         with:
           name: luci-app-yandex-speedtest-${{ matrix.release }}-${{ matrix.format }}
