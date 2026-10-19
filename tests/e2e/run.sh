@@ -93,12 +93,13 @@ x 'nslookup downloads.openwrt.org > /dev/null 2>&1' ||
 
 # --- install ---------------------------------------------------------------
 
-x 'mkdir -p /tmp/pkgs'
-docker cp "$pkgs/." "$C:/tmp/pkgs/"
+x 'mkdir -p /root/pkgs'
+# not /tmp: docker cp writes under the tmpfs OpenWrt mounts there
+docker cp "$pkgs/." "$C:/root/pkgs/"
 if [ "$format" = ipk ]; then
-	install='opkg update && opkg install /tmp/pkgs/*.ipk'
+	install='opkg update && opkg install /root/pkgs/*.ipk'
 else
-	install='apk update && apk add --allow-untrusted /tmp/pkgs/*.apk'
+	install='apk update && apk add --allow-untrusted /root/pkgs/*.apk'
 fi
 if ! x "$install" > /tmp/e2e-install.txt 2>&1; then
 	{ echo "--- resolv.conf"; x 'cat /etc/resolv.conf; ip -4 route'; } >> /tmp/e2e-install.txt 2>&1
