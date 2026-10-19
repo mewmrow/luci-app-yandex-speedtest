@@ -5,7 +5,7 @@
 #
 #   sh tests/e2e/run.sh <release> <ipk|apk> <dir with packages>
 
-# shellcheck disable=SC1010,SC2015,SC2016
+# shellcheck disable=SC1010,SC2015
 release=$1
 format=$2
 pkgs=$3
@@ -23,44 +23,14 @@ note() { # title, file -> warning annotation (GitHub keeps 4 KiB of it)
 	echo "::warning title=E2E $release $1::$(head -c 4000 "$2" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"
 }
 
-dump() { # diagnostics to the log and, since logs are not always at hand, to annotations
+dump() { # diagnostics to the log and, since logs are not always at hand, to an annotation
 	{
-		echo "--- LuCI CGI run directly"
-		x 'cd /www/cgi-bin
-			REQUEST_METHOD=GET SCRIPT_NAME=/cgi-bin/luci PATH_INFO=/ REQUEST_URI=/cgi-bin/luci/ SERVER_NAME=x \
-			SERVER_PORT=80 REMOTE_ADDR=127.0.0.1 GATEWAY_INTERFACE=CGI/1.1 SERVER_PROTOCOL=HTTP/1.1 \
-				./luci < /dev/null > /tmp/cgi.out 2>&1 &
-			p=$!; sleep 10
-			echo "output:"; head -c 600 /tmp/cgi.out; echo
-			for q in $p $(cat /proc/[0-9]*/stat 2>/dev/null | awk -v p=$p "\$4 == p { print \$1 }"); do
-				[ -d /proc/$q ] || { echo "$q exited"; continue; }
-				echo "pid $q: $(tr "\\0" " " < /proc/$q/cmdline) wchan=$(cat /proc/$q/wchan) state=$(sed -n "s/^State:\t//p" /proc/$q/status)"
-				ls -l /proc/$q/fd 2>&1 | sed "s/^/   /"
-			done
-			kill $p 2>/dev/null' 2>&1
-		echo "--- children of uhttpd during a request"
-		curl -s -m 25 -o /dev/null http://127.0.0.1:8080/cgi-bin/luci/ &
-		sleep 5
-		x 'u=$(pidof uhttpd); ps w | head -n 1
-			for q in $(cat /proc/[0-9]*/stat 2>/dev/null | awk "{ print \$1, \$4 }" | awk -v u=$u "\$2 == u { print \$1 }"); do
-				echo "pid $q: $(tr "\\0" " " < /proc/$q/cmdline) wchan=$(cat /proc/$q/wchan) state=$(sed -n "s/^State:\t//p" /proc/$q/status)"
-				ls -l /proc/$q/fd 2>&1 | sed "s/^/   /"
-				for k in $(cat /proc/[0-9]*/stat 2>/dev/null | awk -v q=$q "\$4 == q { print \$1 }"); do
-					echo "   child $k: $(tr "\\0" " " < /proc/$k/cmdline) wchan=$(cat /proc/$k/wchan)"
-				done
-			done
-			echo "uhttpd wchan=$(cat /proc/$u/wchan)"; grep -i -e cgi -e ucode -e lua /etc/config/uhttpd' 2>&1
-		wait
-	} > /tmp/e2e-cgi.txt
-	{
-		echo "--- docker logs"; docker logs "$C" 2>&1 | tail -n 20
 		echo "--- ps"; x 'ps w' 2>&1 | tail -n 30
 		echo "--- ip addr"; x 'ip -4 addr' 2>&1
-		echo "--- logread"; x 'logread' 2>&1 | tail -n 30
+		echo "--- logread"; x 'logread' 2>&1 | tail -n 40
 	} > /tmp/e2e-sys.txt
-	cat /tmp/e2e-cgi.txt /tmp/e2e-sys.txt
-	note "LuCI CGI" /tmp/e2e-cgi.txt
-	note "system" /tmp/e2e-sys.txt
+	cat /tmp/e2e-sys.txt
+	note "diagnostics" /tmp/e2e-sys.txt
 }
 
 die() { fail "$*"; dump; exit 1; }
@@ -109,14 +79,11 @@ done
 set -- $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}/{{.IPPrefixLen}} {{.Gateway}}{{end}}' "$C")
 x "ip link set eth0 up; ip addr add $1 dev eth0; ip route add default via $2" || die "network setup failed"
 
-i=12
-until [ "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/cgi-bin/luci/)" = 200 ]; do
+# LuCI answers the login page with 403
+i=60
+until curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/cgi-bin/luci/ | grep -qE '^(200|403)$'; do
 	i=$((i - 1))
-	if [ "$i" -le 0 ]; then
-		curl -sv -m 20 http://127.0.0.1:8080/cgi-bin/luci/ 2>&1 | head -n 40 > /tmp/e2e-curl.txt
-		echo "::warning title=E2E $release curl::$(sed -e ':a;N;$!ba;s/\n/%0A/g' /tmp/e2e-curl.txt)"
-		die "LuCI did not come up"
-	fi
+	[ "$i" -gt 0 ] || die "LuCI did not come up"
 	sleep 1
 done
 ok "OpenWrt $release is up, LuCI answers"
