@@ -45,7 +45,21 @@ try {
 	const ip = page.locator('.ys-ip');
 	if (await ip.isVisible()) {
 		check(await ip.evaluate(e => e.classList.contains('ys-masked')), 'IP is blurred after page load');
-		await ip.click();
+		try {
+			await ip.click({ timeout: 5000 });
+		}
+		catch (e) {
+			/* Playwright waits for a "stable" element; report why it is not and click anyway */
+			const why = await ip.evaluate(e => {
+				const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
+				const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+				return `box ${r.x|0},${r.y|0} ${r.width|0}x${r.height|0}, visibility ${cs.visibility}, ` +
+					`animation ${cs.animationName}, transition ${cs.transitionProperty}, ` +
+					`on top: ${top ? top.tagName + '.' + top.className : 'none'}`;
+			});
+			check(false, 'IP element is not stable for Playwright: ' + why);
+			await ip.click({ force: true });
+		}
 		check(!(await ip.evaluate(e => e.classList.contains('ys-masked'))), 'click on IP shows it');
 		await page.waitForTimeout(1500);
 		check(!(await card.evaluate(e => e.classList.contains('ys-running'))), 'click on IP does not start a test');
@@ -56,7 +70,8 @@ try {
 	await page.screenshot({ path: shot + '-overview.png', fullPage: true });
 
 	// start, pick it up in a second tab, stop
-	await card.click();
+	const speedRow = page.locator('.ys-speed');
+	await speedRow.click();
 	await page.waitForSelector('.ys-card.ys-running', { timeout: 5000 });
 	check(true, 'click starts the test');
 
@@ -69,7 +84,7 @@ try {
 	await page.waitForSelector('.ys-card .ys-bar > div[style*="width"]', { timeout: 10000 });
 	await page.screenshot({ path: shot + '-running.png', fullPage: true });
 
-	await card.click();
+	await speedRow.click();
 	await page.waitForSelector('.ys-card:not(.ys-running)', { timeout: 10000 });
 	check(true, 'second click stops the test');
 	const speed = await page.locator('.ys-speed').innerText();
@@ -79,7 +94,7 @@ try {
 	await page2.close();
 
 	// full run from the UI
-	await card.click();
+	await speedRow.click();
 	await page.waitForSelector('.ys-card.ys-running', { timeout: 5000 });
 	await page.waitForSelector('.ys-card:not(.ys-running)', { timeout: 90000 });
 	await page.waitForTimeout(1500); /* number animation */
