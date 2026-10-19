@@ -14,13 +14,17 @@ ROOT=$E/../..
 C=owrt
 FAILS=0
 
-ok() { echo "ok   - $*"; }
-fail() { echo "FAIL - $*"; echo "::error title=E2E $release::$*"; FAILS=$((FAILS + 1)); }
+SUMMARY=/tmp/e2e-summary.txt
+: > "$SUMMARY"
+
+ok() { echo "ok   - $*" | tee -a "$SUMMARY"; }
+fail() { echo "FAIL - $*" | tee -a "$SUMMARY"; echo "::error title=E2E $release::$*"; FAILS=$((FAILS + 1)); }
 x() { docker exec "$C" sh -c "$*"; }
+status() { x 'ubus call yandex-speedtest status' | tr -d '\n\t'; }
 field() { echo "$1" | sed -nE "s/.*\"$2\": *\"?([^,\"}]*).*/\1/p"; }
 
-note() { # title, file -> warning annotation (GitHub keeps 4 KiB of it)
-	echo "::warning title=E2E $release $1::$(head -c 4000 "$2" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+note() { # title, file [level] -> annotation (GitHub keeps 4 KiB of it)
+	echo "::${3:-warning} title=E2E $release $1::$(head -c 4000 "$2" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"
 }
 
 dump() { # diagnostics to the log and, since logs are not always at hand, to an annotation
@@ -39,7 +43,7 @@ wait_state() { # timeout-seconds state... -> last status json
 	t=$1
 	shift
 	while [ "$t" -gt 0 ]; do
-		st=$(x 'ubus call yandex-speedtest status' 2> /dev/null)
+		st=$(status 2> /dev/null)
 		for want in "$@"; do
 			[ "$(field "$st" state)" = "$want" ] && { echo "$st"; return 0; }
 		done
@@ -115,7 +119,7 @@ ok "packages installed"
 # --- ubus ------------------------------------------------------------------
 
 x 'ubus list yandex-speedtest' > /dev/null && ok "ubus object yandex-speedtest" || die "no ubus object"
-st=$(x 'ubus call yandex-speedtest status')
+st=$(status)
 [ "$(field "$st" state)" = idle ] && ok "status: idle" || fail "status: $st"
 
 x 'uci set yandex-speedtest.main.secs=5; uci commit yandex-speedtest'
@@ -131,7 +135,6 @@ owners=$(x "ps w | grep '[y]andex-speedtest/worker' | grep -c '^ *$lock '")
 if st=$(wait_state 60 done error); then
 	if [ "$(field "$st" state)" = done ]; then
 		ok "test through ubus: $st"
-		echo "::notice title=E2E $release ubus test::$st"
 	else
 		fail "test ended with error: $st"
 	fi
@@ -142,7 +145,7 @@ fi
 # --- UI --------------------------------------------------------------------
 
 mkdir -p "$E/shots"
-if node "$E/ui.mjs" "$E/shots/$release"; then
+if node "$E/ui.mjs" "$E/shots/$release" 2>&1 | tee /tmp/e2e-ui.txt; [ "$(tail -n 1 /tmp/e2e-ui.txt)" = "UI passed" ]; then
 	ok "UI test"
 else
 	fail "UI test, see log and screenshots"
@@ -158,7 +161,6 @@ x 'ubus call yandex-speedtest start' > /dev/null
 st=$(wait_state 60 done error)
 [ "$(field "$st" server)" = fallback ] && ok "fallback used: $(field "$st" hosts), state $(field "$st" state)" ||
 	fail "fallback: $st"
-echo "::notice title=E2E $release fallback test::$st"
 x 'cp /tmp/hosts.orig /etc/hosts'
 
 # --- remove ----------------------------------------------------------------
@@ -175,6 +177,8 @@ x '[ ! -e /usr/libexec/yandex-speedtest/worker ] && [ ! -e /tmp/yandex-speedtest
 x 'ubus list yandex-speedtest' > /dev/null 2>&1 && fail "ubus object left after removal" || ok "ubus object gone"
 
 [ "$FAILS" = 0 ] || dump
+grep -E '^(ok|FAIL) ' /tmp/e2e-ui.txt 2> /dev/null | sed 's/^/    UI: /' >> "$SUMMARY"
+note summary "$SUMMARY" notice
 echo
 [ "$FAILS" = 0 ] && echo "all passed" || echo "$FAILS failed"
 [ "$FAILS" = 0 ]

@@ -100,4 +100,5 @@ catch (e) {
 check(errors.length == 0, 'no JavaScript errors' + (errors.length ? ': ' + errors.join('; ') : ''));
 
 await browser.close();
+console.log(failures.length ? 'UI failed' : 'UI passed');
 process.exit(failures.length ? 1 : 0);
