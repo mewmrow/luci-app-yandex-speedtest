@@ -96,9 +96,16 @@ x 'nslookup downloads.openwrt.org > /dev/null 2>&1' ||
 x 'mkdir -p /tmp/pkgs'
 docker cp "$pkgs/." "$C:/tmp/pkgs/"
 if [ "$format" = ipk ]; then
-	x 'opkg update > /dev/null && opkg install /tmp/pkgs/*.ipk' || die "opkg install failed"
+	install='opkg update && opkg install /tmp/pkgs/*.ipk'
 else
-	x 'apk update > /dev/null && apk add --allow-untrusted /tmp/pkgs/*.apk' || die "apk add failed"
+	install='apk update && apk add --allow-untrusted /tmp/pkgs/*.apk'
+fi
+if ! x "$install" > /tmp/e2e-install.txt 2>&1; then
+	{ echo "--- resolv.conf"; x 'cat /etc/resolv.conf; ip -4 route'; } >> /tmp/e2e-install.txt 2>&1
+	cat /tmp/e2e-install.txt
+	tail -c 3500 /tmp/e2e-install.txt > /tmp/e2e-install-tail.txt
+	note "install" /tmp/e2e-install-tail.txt
+	die "package install failed"
 fi
 x 'rm -rf /tmp/luci-*; /etc/init.d/rpcd restart'
 sleep 2
