@@ -26,7 +26,7 @@ dump() { # diagnostics to the log and, since logs are not always at hand, to an 
 		echo "--- ps"; x 'ps w' 2>&1 | tail -n 40
 		echo "--- netstat"; x 'netstat -ltn' 2>&1
 		echo "--- ip addr"; x 'ip addr' 2>&1
-		echo "--- wget inside"; x 'wget -S -O /dev/null http://127.0.0.1/cgi-bin/luci/' 2>&1 | head -n 20
+		echo "--- LuCI from inside"; x 'wget -q -O - http://127.0.0.1/cgi-bin/luci/' 2>&1 | head -c 400
 		echo "--- logread"; x 'logread' 2>&1 | tail -n 60
 	} > /tmp/e2e-dump.txt
 	cat /tmp/e2e-dump.txt
@@ -66,6 +66,18 @@ RUN rm -f /etc/rc.d/S*network /etc/rc.d/S*firewall /etc/rc.d/S*dnsmasq /etc/rc.d
 EOF
 
 docker run -d --name "$C" --privileged -p 8080:80 openwrt-e2e /sbin/init > /dev/null || die "docker run failed"
+
+# preinit brings eth0 up for failsafe and then flushes it, taking Docker's
+# address with it: put the address and the default route back after boot
+i=60
+until x 'pidof uhttpd' > /dev/null 2>&1; do
+	i=$((i - 1))
+	[ "$i" -gt 0 ] || die "OpenWrt did not boot"
+	sleep 1
+done
+# shellcheck disable=SC2046
+set -- $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}/{{.IPPrefixLen}} {{.Gateway}}{{end}}' "$C")
+x "ip link set eth0 up; ip addr add $1 dev eth0; ip route add default via $2" || die "network setup failed"
 
 i=60
 until [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/cgi-bin/luci/)" = 200 ]; do
