@@ -40,6 +40,9 @@ const CSS = [
 	'  font-size: 90%;',
 	'  opacity: .75;',
 	'}',
+	'.ys-ping:not(:empty)::before {',
+	'  content: " · ";',
+	'}',
 	'.ys-speed {',
 	'  margin: .15em 0;',
 	'  font-size: 1.6em;',
@@ -144,7 +147,9 @@ return baseclass.extend({
 		if (!document.getElementById('ys-style'))
 			document.head.appendChild(E('style', { 'id': 'ys-style' }, CSS));
 
-		this.serverEl = E('div', { 'class': 'ys-server' }, 'Yandex');
+		this.serverName = E('span', {}, 'Yandex');
+		this.pingEl = E('span', { 'class': 'ys-ping' });
+		this.serverEl = E('div', { 'class': 'ys-server' }, [ this.serverName, this.pingEl ]);
 		this.downEl = E('span', {}, '–');
 		this.upEl = E('span', {}, '–');
 
@@ -294,9 +299,14 @@ return baseclass.extend({
 		this.node.classList.toggle('ys-running', running);
 
 		if (st.server == 'fallback' && st.hosts)
-			this.serverEl.textContent = st.hosts;
+			this.serverName.textContent = st.hosts;
 		else
-			this.serverEl.textContent = 'Yandex';
+			this.serverName.textContent = 'Yandex';
+
+		if (num(st.ping) != null && (running || s == 'done'))
+			this.pingEl.textContent = _('latency %d ms').format(st.ping);
+		else
+			this.pingEl.textContent = '';
 
 		if (st.ip) {
 			this.ipEl.textContent = st.ip;

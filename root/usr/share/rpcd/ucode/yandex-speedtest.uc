@@ -14,7 +14,7 @@ const WORKER = '/usr/libexec/yandex-speedtest/worker';
 const RUNNING = [ 'prepare', 'down', 'up' ];
 
 const IDLE = {
-	state: 'idle', live: 0, down: null, up: null, ip: '', server: '', hosts: '',
+	state: 'idle', live: 0, down: null, up: null, ping: null, ip: '', server: '', hosts: '',
 	elapsed: 0, secs: 0, ts: 0, error: ''
 };
 

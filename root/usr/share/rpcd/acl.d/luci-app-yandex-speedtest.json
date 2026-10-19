@@ -4,12 +4,14 @@
 		"read": {
 			"ubus": {
 				"yandex-speedtest": [ "status" ]
-			}
+			},
+			"uci": [ "yandex-speedtest" ]
 		},
 		"write": {
 			"ubus": {
 				"yandex-speedtest": [ "start", "stop" ]
-			}
+			},
+			"uci": [ "yandex-speedtest" ]
 		}
 	}
 }

@@ -11,12 +11,18 @@ LUCI_PKGARCH:=all
 LUCI_URL:=https://github.com/mewmrow/luci-app-yandex-speedtest
 LUCI_MAINTAINER:=mewmrow
 
-PKG_VERSION:=0.1.0
+PKG_VERSION:=0.2.0
 PKG_RELEASE:=1
 PKG_LICENSE:=Apache-2.0
 
 define Package/luci-app-yandex-speedtest/conffiles
 /etc/config/yandex-speedtest
+endef
+
+define Package/luci-app-yandex-speedtest/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] || { mkdir -p /tmp/yandex-speedtest; touch /tmp/yandex-speedtest/stop; }
+exit 0
 endef
 
 define Package/luci-app-yandex-speedtest/postrm

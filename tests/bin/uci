@@ -1,0 +1,10 @@
+#!/bin/sh
+# fake "uci -q get yandex-speedtest.main.<option>" for worker tests
+case "${3##*.}" in
+secs) echo "${T_SECS:-6}" ;;
+streams) echo 3 ;;
+iface) echo "${T_IFACE:-}" ;;
+fallback_down) echo "http://127.0.0.1:$T_PORT/1GB" ;;
+fallback_up) echo "http://127.0.0.1:$T_PORT/empty.php" ;;
+*) exit 1 ;;
+esac

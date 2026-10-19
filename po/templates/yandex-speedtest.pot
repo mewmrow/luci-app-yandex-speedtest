@@ -1,50 +1,107 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8"
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:355
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:365
 msgid "Click to run again"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:153
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:158
 msgid "Click to show IP"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:162
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:167 htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:367
 msgid "Click to start the test"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:114
+msgid "curl is required: apk add curl / opkg install curl"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:10
+msgid "Expecting a http:// or https:// URL"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:37
+msgid "Fallback download URL"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:42
+msgid "Fallback upload URL"
 msgstr ""
 
 #: root/usr/share/rpcd/acl.d/luci-app-yandex-speedtest.json:3
 msgid "Grant access to the Yandex speed test"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:181
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:32
+msgid "Interface"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:307
+#, c-format
+msgid "latency %d ms"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:186
 msgid "Mbps"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:351
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:28
+msgid "Parallel connections in each phase, 1 to 8."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:22
+msgid "Phase duration"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:361
 msgid "Preparing…"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:120
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:33
+msgid "Run the test through this interface. Unspecified: use the default route."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:23
+msgid "Seconds for the download and for the upload phase, 5 to 60."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:123
 msgid "Speed test"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:211
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:216 htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:359
 msgid "Stopping…"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:353
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:27
+msgid "Streams"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:363
 msgid "Testing, click to stop"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:115
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:18
+msgid "The test card is on Status → Overview. Changes apply to the next test."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:118
 msgid "The test failed"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:113
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:116
 msgid "The test was interrupted"
 msgstr ""
 
-#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:111
-msgid "curl is required: apk add curl / opkg install curl"
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:38
+msgid "Used when the Yandex API is unavailable. A large file, at least a few hundred megabytes."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:43
+msgid "Used when the Yandex API is unavailable. Accepts POST requests of any size."
+msgstr ""
+
+#: htdocs/luci-static/resources/view/yandex-speedtest/settings.js:17 root/usr/share/luci/menu.d/luci-app-yandex-speedtest.json:3
+msgid "Yandex speed test"
 msgstr ""

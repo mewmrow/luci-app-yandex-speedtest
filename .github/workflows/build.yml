@@ -8,6 +8,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    name: Lint and worker tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y shellcheck dash
+
+      - name: shellcheck
+        run: shellcheck -s sh root/usr/libexec/yandex-speedtest/worker .github/scripts/*.sh tests/*.sh tests/e2e/run.sh
+
+      - name: JavaScript syntax
+        run: |
+          for f in $(find htdocs -name '*.js'); do
+            node -e "new Function(require('fs').readFileSync('$f', 'utf8'))" && echo "ok $f"
+          done
+
+      - name: Worker tests
+        run: dash tests/worker.sh
+
   build:
     name: OpenWrt ${{ matrix.release }} (${{ matrix.format }})
     runs-on: ubuntu-24.04
@@ -22,7 +43,7 @@ jobs:
 
     steps:
       # the directory name becomes the package name in luci.mk
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           path: luci-app-yandex-speedtest
 
@@ -35,10 +56,7 @@ jobs:
 
       - name: Download SDK
         run: |
-          base=https://downloads.openwrt.org/releases
-          ver=$(curl -fsSL "$base/" | grep -oE "${{ matrix.release }}\.[0-9]+/" | tr -d / | sort -uV | tail -n1)
-          ver=${ver:-${{ matrix.release }}-SNAPSHOT}
-          url=$base/$ver/targets/x86/64
+          url=$(sh luci-app-yandex-speedtest/.github/scripts/openwrt-url.sh ${{ matrix.release }})
           sdk=$(curl -fsSL "$url/" | grep -oE 'openwrt-sdk-[^"]+\.tar\.(zst|xz)' | head -n1)
           echo "SDK: $url/$sdk"
           curl -fsSL "$url/$sdk" -o sdk.tar
@@ -79,23 +97,67 @@ jobs:
           done | tee contents.txt
           echo "::notice title=Package contents::$(sed -e 's/%/%25/g' contents.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: luci-app-yandex-speedtest-${{ matrix.release }}-${{ matrix.format }}
           path: out/*
 
-  release:
+  e2e:
+    name: E2E OpenWrt ${{ matrix.release }}
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - release: '24.10'
+            format: ipk
+          - release: '25.12'
+            format: apk
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: luci-app-yandex-speedtest-${{ matrix.release }}-${{ matrix.format }}
+          path: pkgs
+
+      - name: Install Playwright
+        working-directory: tests/e2e
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Run
+        run: sh tests/e2e/run.sh ${{ matrix.release }} ${{ matrix.format }} pkgs
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: e2e-screenshots-${{ matrix.release }}
+          path: tests/e2e/shots/
+          if-no-files-found: ignore
+
+  release:
+    needs: [ test, build ]
+    # vX.Y.Z tags -> release, pushes to the default branch -> "dev" pre-release
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref_type == 'tag' || github.ref_name == github.event.repository.default_branch)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+    concurrency:
+      group: release-${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/release.sh

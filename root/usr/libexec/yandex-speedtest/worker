@@ -9,13 +9,13 @@ RUN=/tmp/yandex-speedtest
 STATE=$RUN/state.json
 STOP=$RUN/stop
 LOCK=$RUN/lock
-API=https://yandex.ru/internet/api/v0
+API=${YANDEX_SPEEDTEST_API:-https://yandex.ru/internet/api/v0}
 UA='Mozilla/5.0 (X11; Linux x86_64) luci-app-yandex-speedtest'
 
 DEF_DOWN=https://speedtest.selectel.ru/1GB
 DEF_UP=https://speedtest.rt.ru/backend/empty.php
 
-ST=prepare LIVE=0 DOWN=null UP=null IP='' SERVER='' HOSTS='' ELAPSED=0 ERR=''
+ST=prepare LIVE=0 DOWN=null UP=null PING=null IP='' SERVER='' HOSTS='' ELAPSED=0 ERR=''
 SECS=15 STREAMS=3 DEV='' CURL_IF='' STREAM_PIDS=''
 
 cfg() { # option default
@@ -50,8 +50,8 @@ url_host() {
 }
 
 write_state() {
-	printf '{"state":"%s","live":%s,"down":%s,"up":%s,"ip":"%s","server":"%s","hosts":"%s","elapsed":%s,"secs":%s,"ts":%s,"error":"%s"}\n' \
-		"$ST" "$LIVE" "$DOWN" "$UP" "$IP" "$SERVER" "$HOSTS" "$ELAPSED" "$SECS" "$(date +%s)" "$ERR" \
+	printf '{"state":"%s","live":%s,"down":%s,"up":%s,"ping":%s,"ip":"%s","server":"%s","hosts":"%s","elapsed":%s,"secs":%s,"ts":%s,"error":"%s"}\n' \
+		"$ST" "$LIVE" "$DOWN" "$UP" "$PING" "$IP" "$SERVER" "$HOSTS" "$ELAPSED" "$SECS" "$(date +%s)" "$ERR" \
 		> "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE"
 }
 
@@ -91,14 +91,49 @@ get_ip() {
 	[ -n "$v6" ] && IP=$v6
 }
 
+probe_urls() { # path regex -> matching probe urls from PROBES_RAW, one per line
+	printf '%s' "$PROBES_RAW" |
+		grep -oE "https://[a-z0-9.-]+\.cdn\.yandex\.net(/[A-Za-z0-9_-]+)?/$1\?[^\"[:space:]\\\\]*" |
+		grep -v 'timeout='
+}
+
+measure_ping() { # url -> lowest request round trip in ms over one connection
+	set -- "$1" -o /dev/null "$1" -o /dev/null "$1" -o /dev/null "$1" -o /dev/null "$1"
+	ycurl -f -m 5 -o /dev/null -w '%{time_starttransfer} %{time_pretransfer}\n' "$@" 2>/dev/null |
+		awk '$1 > $2 { d = ($1 - $2) * 1000; if (m == "" || d < m) m = d }
+		     END { if (m != "") { if (m < 1) m = 1; printf "%d\n", m + 0.5 } }'
+}
+
+pick_node() { # NODE, LID, PING = the Yandex node with the lowest latency
+	NODE='' LID=''
+	urls=$(probe_urls ping | grep -E '[?&]lid=[0-9]+' | head -n 5)
+	while read -r u; do
+		[ -n "$u" ] || continue
+		ms=$(measure_ping "$u")
+		[ -n "$ms" ] || continue
+		if [ "$PING" = null ] || [ "$ms" -lt "$PING" ]; then
+			PING=$ms
+			NODE=$(url_host "$u")
+			LID=$(echo "$u" | sed -nE 's/.*[?&]lid=([0-9]+).*/\1/p')
+		fi
+	done <<-LIST
+	$urls
+	LIST
+}
+
 get_probes() {
 	PROBES_RAW=$(ycurl -m 8 "$API/get-probes" 2>/dev/null | sed -e 's#\\/#/#g' -e 's#\\u0026#\&#g')
-	DOWN_URL=$(printf '%s' "$PROBES_RAW" |
-		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net(/[A-Za-z0-9_-]+)?/probes/50mb\?[^"[:space:]\\]*' |
-		grep -v 'timeout=' | head -n1)
-	UP_URL=$(printf '%s' "$PROBES_RAW" |
-		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net(/[A-Za-z0-9_-]+)?/upload\?[^"[:space:]\\]*' |
-		grep -v 'timeout=' | head -n1)
+	dl=$(probe_urls 'probes/50mb')
+	ul=$(probe_urls upload)
+	pick_node
+	DOWN_URL='' UP_URL=''
+	if [ -n "$LID" ]; then
+		DOWN_URL=$(echo "$dl" | grep -E "[?&]lid=$LID(&|\$)" | head -n1)
+		UP_URL=$(echo "$ul" | grep -F "https://$NODE/" | head -n1)
+	fi
+	# no node answered the ping: take the first probes, as Yandex lists them
+	[ -n "$DOWN_URL" ] || DOWN_URL=$(echo "$dl" | head -n1)
+	[ -n "$UP_URL" ] || UP_URL=$(echo "$ul" | head -n1)
 }
 
 choose_servers() {
@@ -293,6 +328,7 @@ probe() {
 	get_probes
 	printf '%s\n' "$PROBES_RAW" | dd bs=4000 count=1 2>/dev/null
 	echo
+	echo "nearest node: ${NODE:-none} (lid ${LID:-?}, ping $PING ms)"
 	echo "parsed download: ${DOWN_URL:-none}"
 	echo "parsed upload:   ${UP_URL:-none}"
 	choose_servers

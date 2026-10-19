@@ -1,0 +1,14 @@
+{
+	"admin/services/yandex-speedtest": {
+		"title": "Yandex speed test",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "yandex-speedtest/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-yandex-speedtest" ],
+			"uci": { "yandex-speedtest": true }
+		}
+	}
+}
