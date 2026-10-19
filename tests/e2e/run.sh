@@ -5,7 +5,7 @@
 #
 #   sh tests/e2e/run.sh <release> <ipk|apk> <dir with packages>
 
-# shellcheck disable=SC1010,SC2015
+# shellcheck disable=SC1010,SC2015,SC2016
 release=$1
 format=$2
 pkgs=$3
@@ -26,7 +26,11 @@ dump() { # diagnostics to the log and, since logs are not always at hand, to an 
 		echo "--- ps"; x 'ps w' 2>&1 | tail -n 40
 		echo "--- netstat"; x 'netstat -ltn' 2>&1
 		echo "--- ip addr"; x 'ip addr' 2>&1
-		echo "--- LuCI from inside"; x 'wget -q -O - http://127.0.0.1/cgi-bin/luci/' 2>&1 | head -c 400
+		echo "--- uhttpd"; x 'tr "\\0" " " < /proc/$(pidof uhttpd)/cmdline; echo; ls -la /www /www/cgi-bin' 2>&1
+		echo "--- static from inside"; x 'wget -T 5 -q -O - http://127.0.0.1/ | head -c 300' 2>&1
+		echo "--- LuCI from inside"; x 'wget -T 10 -q -O - http://127.0.0.1/cgi-bin/luci/ | head -c 300' 2>&1
+		echo "--- LuCI CGI run directly"
+		x 'cd /www/cgi-bin; REQUEST_METHOD=GET SCRIPT_NAME=/cgi-bin/luci PATH_INFO=/ REQUEST_URI=/cgi-bin/luci/ SERVER_NAME=x SERVER_PORT=80 REMOTE_ADDR=127.0.0.1 GATEWAY_INTERFACE=CGI/1.1 SERVER_PROTOCOL=HTTP/1.1 timeout 15 ./luci < /dev/null 2>&1 | head -c 600; echo " [exit $?]"' 2>&1
 		echo "--- logread"; x 'logread' 2>&1 | tail -n 60
 	} > /tmp/e2e-dump.txt
 	cat /tmp/e2e-dump.txt
@@ -79,11 +83,11 @@ done
 set -- $(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}/{{.IPPrefixLen}} {{.Gateway}}{{end}}' "$C")
 x "ip link set eth0 up; ip addr add $1 dev eth0; ip route add default via $2" || die "network setup failed"
 
-i=60
-until [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/cgi-bin/luci/)" = 200 ]; do
+i=12
+until [ "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/cgi-bin/luci/)" = 200 ]; do
 	i=$((i - 1))
 	if [ "$i" -le 0 ]; then
-		curl -sv http://127.0.0.1:8080/cgi-bin/luci/ 2>&1 | head -n 40 > /tmp/e2e-curl.txt
+		curl -sv -m 20 http://127.0.0.1:8080/cgi-bin/luci/ 2>&1 | head -n 40 > /tmp/e2e-curl.txt
 		echo "::warning title=E2E $release curl::$(sed -e ':a;N;$!ba;s/\n/%0A/g' /tmp/e2e-curl.txt)"
 		die "LuCI did not come up"
 	fi
