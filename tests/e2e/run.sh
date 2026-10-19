@@ -19,10 +19,16 @@ fail() { echo "FAIL - $*"; echo "::error title=E2E $release::$*"; FAILS=$((FAILS
 x() { docker exec "$C" sh -c "$*"; }
 field() { echo "$1" | sed -nE "s/.*\"$2\": *\"?([^,\"}]*).*/\1/p"; }
 
-dump() {
-	echo "--- docker logs"; docker logs "$C" 2>&1 | tail -n 50
-	echo "--- ps"; x 'ps w' 2>&1 | tail -n 40
-	echo "--- logread"; x 'logread' 2>&1 | tail -n 60
+dump() { # diagnostics to the log and, since logs are not always at hand, to an annotation
+	{
+		echo "--- docker ps"; docker ps -a 2>&1
+		echo "--- docker logs"; docker logs "$C" 2>&1 | tail -n 50
+		echo "--- ps"; x 'ps w' 2>&1 | tail -n 40
+		echo "--- netstat"; x 'netstat -ltn' 2>&1
+		echo "--- logread"; x 'logread' 2>&1 | tail -n 60
+	} > /tmp/e2e-dump.txt
+	cat /tmp/e2e-dump.txt
+	echo "::warning title=E2E $release diagnostics::$(sed -e 's/%/%25/g' /tmp/e2e-dump.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
 }
 
 die() { fail "$*"; dump; exit 1; }

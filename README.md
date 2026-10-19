@@ -3,7 +3,10 @@
 Карточка замера скорости до Яндекса (как [Интернетометр](https://yandex.ru/internet)) на странице
 **Status → Overview** в LuCI. Замер идёт с самого роутера: загрузка и отдача в несколько потоков через `curl`.
 
+![Карточка на странице Overview](docs/screenshot.png)
+
 - клик по карточке запускает тест, повторный клик останавливает;
+- узел Яндекса выбирается по наименьшей задержке, задержка показывается на карточке;
 - во время теста показывается живая скорость и полоса прогресса;
 - внешний IP по умолчанию размыт, клик по нему показывает адрес;
 - если API Яндекса недоступен, замер идёт через запасные серверы (Selectel / Ростелеком),
@@ -13,19 +16,26 @@
 
 ## Установка
 
-Готовые пакеты собирает GitHub Actions: вкладка **Actions** → последняя сборка → **Artifacts**
-(для тегов `v*` — в **Releases**).
+Пакеты лежат в [**Releases**](https://github.com/mewmrow/luci-app-yandex-speedtest/releases):
 
-OpenWrt 24.10 (opkg):
+- [последний релиз](https://github.com/mewmrow/luci-app-yandex-speedtest/releases/latest) — стабильная версия;
+- [`dev`](https://github.com/mewmrow/luci-app-yandex-speedtest/releases/tag/dev) — сборка последнего коммита.
+
+В описании каждого релиза есть готовые команды: скачать пакеты прямо на роутер и установить.
+Нужны два файла: сам пакет и перевод (`luci-i18n-yandex-speedtest-ru`).
+
+OpenWrt 24.10 (opkg, `.ipk`):
 
 ```sh
+opkg update
 opkg install luci-app-yandex-speedtest_*.ipk luci-i18n-yandex-speedtest-ru_*.ipk
 ```
 
-OpenWrt 25.12 (apk, пакеты без подписи):
+OpenWrt 25.12 (apk, `.apk`, пакеты без подписи):
 
 ```sh
-apk add --allow-untrusted luci-app-yandex-speedtest-*.apk luci-i18n-yandex-speedtest-ru-*.apk
+apk update
+apk add --allow-untrusted ./luci-app-yandex-speedtest-*.apk ./luci-i18n-yandex-speedtest-ru-*.apk
 ```
 
 После установки:
@@ -34,11 +44,13 @@ apk add --allow-untrusted luci-app-yandex-speedtest-*.apk luci-i18n-yandex-speed
 rm -rf /tmp/luci-*; /etc/init.d/rpcd restart
 ```
 
-Нужен `curl` (ставится зависимостью).
+`curl` ставится зависимостью.
+
+Новая версия выходит так: поднять `PKG_VERSION` в `Makefile` и запушить тег `vX.Y.Z` с тем же номером.
 
 ## Настройки
 
-`/etc/config/yandex-speedtest`:
+**Службы → Тест скорости Яндекса** в LuCI или `/etc/config/yandex-speedtest`:
 
 ```
 config settings 'main'
@@ -68,7 +80,7 @@ ubus call yandex-speedtest stop
 Состояние лежит в `/tmp/yandex-speedtest/state.json`:
 
 ```json
-{"state":"idle|prepare|down|up|done|error|cancelled","live":0,"down":null,"up":null,
+{"state":"idle|prepare|down|up|done|error|cancelled","live":0,"down":null,"up":null,"ping":null,
  "ip":"","server":"yandex|fallback","hosts":"","elapsed":0,"secs":15,"ts":0,"error":""}
 ```
 
@@ -82,6 +94,16 @@ ubus call yandex-speedtest stop
 | `root/usr/share/rpcd/ucode/yandex-speedtest.uc` | ubus-объект `yandex-speedtest`: `start`, `status`, `stop` |
 | `root/usr/share/rpcd/acl.d/luci-app-yandex-speedtest.json` | права: `status` на чтение, `start`/`stop` на запись |
 | `htdocs/.../view/status/include/25_yandex_speedtest.js` | карточка на Overview |
+| `htdocs/.../view/yandex-speedtest/settings.js` | страница настроек |
 | `po/` | перевод |
+
+## Тесты
+
+- `sh tests/worker.sh` — worker против локального сервера с ограничением скорости
+  (3 потока × 20 Мбит/с): точность замера, остановка, блокировка, задержка, выбор узла
+  по сохранённому ответу Яндекса. Нужны `python3`, `curl`.
+- `tests/e2e/` — в CI: настоящий OpenWrt 24.10 и 25.12 (rootfs в Docker), установка пакетов,
+  тест через ubus, запасные серверы, UI через Playwright, удаление пакета.
+  Скриншоты — в артефактах сборки `e2e-screenshots-*`.
 
 План работ — в [TODO.md](TODO.md).
