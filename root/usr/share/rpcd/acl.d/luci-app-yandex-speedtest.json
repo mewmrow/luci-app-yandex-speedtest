@@ -1,0 +1,15 @@
+{
+	"luci-app-yandex-speedtest": {
+		"description": "Grant access to the Yandex speed test",
+		"read": {
+			"ubus": {
+				"yandex-speedtest": [ "status" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"yandex-speedtest": [ "start", "stop" ]
+			}
+		}
+	}
+}

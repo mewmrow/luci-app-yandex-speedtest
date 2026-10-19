@@ -1,0 +1,363 @@
+#!/bin/sh
+# Yandex speed test worker.
+#
+#   worker         run one download + upload test, progress and result
+#                  are written to /tmp/yandex-speedtest/state.json
+#   worker probe   print diagnostics (API answers, chosen servers, route)
+
+RUN=/tmp/yandex-speedtest
+STATE=$RUN/state.json
+STOP=$RUN/stop
+LOCK=$RUN/lock
+API=https://yandex.ru/internet/api/v0
+UA='Mozilla/5.0 (X11; Linux x86_64) luci-app-yandex-speedtest'
+
+DEF_DOWN=https://speedtest.selectel.ru/1GB
+DEF_UP=https://speedtest.rt.ru/backend/empty.php
+
+ST=prepare LIVE=0 DOWN=null UP=null IP='' SERVER='' HOSTS='' ELAPSED=0 ERR=''
+SECS=15 STREAMS=3 DEV='' CURL_IF='' STREAM_PIDS=''
+
+cfg() { # option default
+	v=$(uci -q get "yandex-speedtest.main.$1" 2>/dev/null)
+	echo "${v:-$2}"
+}
+
+clamp() { # value min max default
+	case "$1" in ''|*[!0-9]*) echo "$4"; return ;; esac
+	if [ "$1" -lt "$2" ]; then echo "$2"
+	elif [ "$1" -gt "$3" ]; then echo "$3"
+	else echo "$1"
+	fi
+}
+
+cfg_url() { # option default
+	u=$(cfg "$1" "$2")
+	case "$u" in http://*|https://*) echo "$u" ;; *) echo "$2" ;; esac
+}
+
+now_cs() { # NOW = uptime in centiseconds
+	read -r up _ < /proc/uptime
+	NOW=${up%.*}${up#*.}
+}
+
+f10() { # var tenths -> var = "12.3"
+	eval "$1=$(($2 / 10)).$(($2 % 10))"
+}
+
+url_host() {
+	echo "$1" | sed -nE 's#^https?://([^/:?]+).*#\1#p' | tr -cd 'A-Za-z0-9.-'
+}
+
+write_state() {
+	printf '{"state":"%s","live":%s,"down":%s,"up":%s,"ip":"%s","server":"%s","hosts":"%s","elapsed":%s,"secs":%s,"ts":%s,"error":"%s"}\n' \
+		"$ST" "$LIVE" "$DOWN" "$UP" "$IP" "$SERVER" "$HOSTS" "$ELAPSED" "$SECS" "$(date +%s)" "$ERR" \
+		> "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE"
+}
+
+ycurl() {
+	if [ -n "$CURL_IF" ]; then
+		curl -sS -A "$UA" --connect-timeout 5 --interface "$CURL_IF" "$@"
+	else
+		curl -sS -A "$UA" --connect-timeout 5 "$@"
+	fi
+}
+
+setup_iface() {
+	iface=$(cfg iface '' | tr -cd 'A-Za-z0-9._@-')
+	[ -n "$iface" ] || return 0
+
+	# logical interface (wan, modem) or a device name (eth1, wwan0)
+	if [ -f /lib/functions/network.sh ]; then
+		# shellcheck disable=SC1091
+		. /lib/functions/network.sh
+		network_get_device DEV "$iface" || network_get_physdev DEV "$iface"
+	fi
+	[ -n "$DEV" ] || DEV=$iface
+	CURL_IF=$DEV
+}
+
+get_ip() {
+	r=$(ycurl -m 5 "$API/ip" 2>/dev/null | head -c 256)
+	v4=$(echo "$r" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+	if [ -n "$v4" ]; then
+		ok=1
+		IFS=.
+		for o in $v4; do [ "$o" -le 255 ] || ok=0; done
+		unset IFS
+		[ "$ok" = 1 ] && { IP=$v4; return; }
+	fi
+	v6=$(echo "$r" | grep -oE '[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,7}' | grep -E '[a-fA-F]|::' | head -n1)
+	[ -n "$v6" ] && IP=$v6
+}
+
+get_probes() {
+	PROBES_RAW=$(ycurl -m 8 "$API/get-probes" 2>/dev/null | sed -e 's#\\/#/#g' -e 's#\\u0026#\&#g')
+	DOWN_URL=$(printf '%s' "$PROBES_RAW" |
+		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net/probes/50mb\?[^"[:space:]\\]*' |
+		grep -v 'timeout=' | head -n1)
+	UP_URL=$(printf '%s' "$PROBES_RAW" |
+		grep -oE 'https://[a-z0-9.-]+\.cdn\.yandex\.net/upload\?[^"[:space:]\\]*' |
+		grep -v 'timeout=' | head -n1)
+}
+
+choose_servers() {
+	if [ -n "$DOWN_URL" ] && [ -n "$UP_URL" ]; then
+		SERVER=yandex
+	else
+		SERVER=fallback
+		DOWN_URL=$(cfg_url fallback_down "$DEF_DOWN")
+		UP_URL=$(cfg_url fallback_up "$DEF_UP")
+	fi
+	HOSTS=$(url_host "$DOWN_URL")
+	uh=$(url_host "$UP_URL")
+	[ "$uh" = "$HOSTS" ] || HOSTS="$HOSTS / $uh"
+}
+
+detect_dev() { # device whose counters show live speed
+	[ -n "$DEV" ] && return 0
+	addr=$(nslookup "$(url_host "$DOWN_URL")" 2>/dev/null | sed -n '/^Name/,$p' |
+		grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n1)
+	DEV=$(ip route get "${addr:-77.88.8.8}" 2>/dev/null | grep -oE 'dev [^ ]+' | head -n1)
+	DEV=${DEV#dev }
+	[ -n "$DEV" ] && [ -d "/sys/class/net/$DEV" ] || DEV=''
+}
+
+read_counter() { # rx|tx -> C
+	C=0
+	[ -n "$DEV" ] && read -r C < "/sys/class/net/$DEV/statistics/$1_bytes" 2>/dev/null
+	C=${C:-0}
+}
+
+dl_stream() { # url deadline outfile
+	while [ ! -e "$STOP" ]; do
+		now_cs
+		rem=$(($2 - NOW))
+		[ "$rem" -ge 50 ] || break
+		ycurl -f -o /dev/null -m "$((rem / 100)).$((rem % 100 / 10))" \
+			-w '%{size_download} %{time_total} %{time_starttransfer}\n' "$1" >> "$3" 2>/dev/null
+		rc=$?
+		[ "$rc" = 0 ] || [ "$rc" = 28 ] || break
+	done
+}
+
+ul_stream() { # url deadline outfile
+	size=1048576
+	while [ ! -e "$STOP" ]; do
+		now_cs
+		rem=$(($2 - NOW))
+		[ "$rem" -ge 50 ] || break
+		head -c "$size" /dev/zero |
+			ycurl -f -o /dev/null -m "$((rem / 100)).$((rem % 100 / 10))" \
+				-X POST -T - -H 'Expect:' -H 'Content-Type: application/octet-stream' \
+				-w '%{size_upload} %{time_total} %{time_pretransfer}\n' "$1" >> "$3" 2>/dev/null
+		rc=$?
+		[ "$rc" = 0 ] || [ "$rc" = 28 ] || break
+
+		# grow the request until one takes about two seconds
+		t=$(tail -n1 "$3" | cut -d' ' -f2)
+		t=${t%%.*}
+		[ "${t:-0}" -lt 2 ] && [ "$size" -lt 33554432 ] && size=$((size * 2))
+	done
+}
+
+descendants() { # pid... -> the pids and all their children
+	all=" $* "
+	changed=1
+	while [ "$changed" = 1 ]; do
+		changed=0
+		for s in /proc/[0-9]*/stat; do
+			read -r line < "$s" 2>/dev/null || continue
+			pid=${line%% *}
+			# shellcheck disable=SC2086
+			set -- ${line##*) }
+			case "$all" in
+			*" $pid "*) ;;
+			*" $2 "*) all="$all$pid "; changed=1 ;;
+			esac
+		done
+	done
+	echo "$all"
+}
+
+stop_streams() {
+	[ -n "$STREAM_PIDS" ] || return 0
+	# shellcheck disable=SC2046,SC2086
+	kill $(descendants $STREAM_PIDS) 2>/dev/null
+	STREAM_PIDS=''
+}
+
+streams_alive() {
+	for p in $STREAM_PIDS; do
+		kill -0 "$p" 2>/dev/null && return 0
+	done
+	return 1
+}
+
+phase_result() { # outfiles... -> tenths of Mbit/s, streams summed
+	awk 'FNR == 1 { if (t > 0) s += b * 8 / t; b = 0; t = 0 }
+	     NF == 3 && $2 > $3 { b += $1; t += $2 - $3 }
+	     END { if (t > 0) s += b * 8 / t; printf "%d\n", s / 100000 + 0.5 }' "$@" 2>/dev/null
+}
+
+run_phase() { # down|up url
+	ST=$1 LIVE=0 ELAPSED=0
+	rm -f "$RUN/$1".*
+	write_state
+
+	now_cs
+	start=$NOW
+	deadline=$((NOW + SECS * 100))
+	i=0
+	while [ "$i" -lt "$STREAMS" ]; do
+		i=$((i + 1))
+		: > "$RUN/$1.$i"
+		if [ "$1" = down ]; then
+			dl_stream "$2" "$deadline" "$RUN/$1.$i" &
+		else
+			ul_stream "$2" "$deadline" "$RUN/$1.$i" &
+		fi
+		STREAM_PIDS="$STREAM_PIDS $!"
+	done
+
+	[ "$1" = down ] && dir=rx || dir=tx
+	read_counter "$dir"
+	prev=$C prev_t=$start
+
+	while streams_alive; do
+		sleep "$TICK"
+		if [ -e "$STOP" ]; then
+			stop_streams
+			return 1
+		fi
+
+		now_cs
+		read_counter "$dir"
+		dt=$((NOW - prev_t))
+		if [ "$dt" -gt 0 ]; then
+			d=$((C - prev))
+			[ "$d" -ge 0 ] || d=0
+			f10 LIVE $((d / (dt * 125)))
+		fi
+		prev=$C prev_t=$NOW
+
+		el=$((NOW - start))
+		[ "$el" -le $((SECS * 100)) ] || el=$((SECS * 100))
+		f10 ELAPSED $((el / 10))
+		write_state
+
+		# streams stop on their own at the deadline, this is a safety net
+		[ "$NOW" -le $((deadline + 1000)) ] || stop_streams
+	done
+	STREAM_PIDS=''
+
+	RESULT=$(phase_result "$RUN/$1".*)
+	RESULT=${RESULT:-0}
+	return 0
+}
+
+cleanup() {
+	stop_streams
+	case "$ST" in
+	prepare|down|up) ST=error LIVE=0 ERR=aborted; write_state ;;
+	esac
+	rm -f "$RUN"/down.* "$RUN"/up.*
+	rm -rf "$LOCK"
+}
+
+cancelled() {
+	rm -f "$STOP"
+	ST=cancelled LIVE=0
+	write_state
+	exit 0
+}
+
+probe() {
+	command -v curl > /dev/null || { echo 'curl: not installed'; exit 1; }
+	curl --version | head -n1
+	setup_iface
+	echo "iface: ${CURL_IF:-default route}"
+	echo
+	echo "== $API/ip"
+	ycurl -m 5 "$API/ip" 2>&1 | head -c 512
+	echo
+	get_ip
+	echo "parsed ip: ${IP:-none}"
+	echo
+	echo "== $API/get-probes"
+	get_probes
+	printf '%s\n' "$PROBES_RAW" | head -c 4000
+	echo
+	echo "parsed download: ${DOWN_URL:-none}"
+	echo "parsed upload:   ${UP_URL:-none}"
+	choose_servers
+	detect_dev
+	echo
+	echo "server: $SERVER ($HOSTS)"
+	echo "download url: $DOWN_URL"
+	echo "upload url:   $UP_URL"
+	echo "counters device: ${DEV:-none}"
+	echo
+	echo "== download 3 s"
+	ycurl -o /dev/null -m 3 -w 'http %{http_code}, %{size_download} bytes, %{time_total} s, %{remote_ip}\n' "$DOWN_URL" 2>&1
+	echo "== upload 1 MiB"
+	head -c 1048576 /dev/zero |
+		ycurl -o /dev/null -m 10 -X POST -T - -H 'Expect:' -H 'Content-Type: application/octet-stream' \
+			-w 'http %{http_code}, %{size_upload} bytes, %{time_total} s, %{remote_ip}\n' "$UP_URL" 2>&1
+}
+
+[ "$1" = probe ] && { probe; exit 0; }
+
+mkdir -p "$RUN"
+
+# one worker at a time; a lock left by a dead worker is taken over
+if ! mkdir "$LOCK" 2> /dev/null; then
+	old=$(cat "$LOCK/pid" 2> /dev/null)
+	if [ -n "$old" ] && grep -q yandex-speedtest "/proc/$old/cmdline" 2> /dev/null; then
+		exit 0
+	fi
+	rm -rf "$LOCK"
+	mkdir "$LOCK" 2> /dev/null || exit 0
+fi
+echo $$ > "$LOCK/pid"
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+rm -f "$STOP"
+
+if ! command -v curl > /dev/null; then
+	ST=error ERR=no-curl
+	write_state
+	exit 1
+fi
+
+SECS=$(clamp "$(cfg secs 15)" 5 60 15)
+STREAMS=$(clamp "$(cfg streams 3)" 1 8 3)
+if sleep 0.01 2> /dev/null; then TICK=0.5; else TICK=1; fi
+
+write_state
+setup_iface
+get_ip
+get_probes
+choose_servers
+detect_dev
+[ -e "$STOP" ] && cancelled
+
+run_phase down "$DOWN_URL" || cancelled
+if [ "$RESULT" -le 0 ]; then
+	ST=error LIVE=0 ERR=down-failed
+	write_state
+	exit 1
+fi
+f10 DOWN "$RESULT"
+
+run_phase up "$UP_URL" || cancelled
+if [ "$RESULT" -le 0 ]; then
+	ST=error LIVE=0 ERR=up-failed
+	write_state
+	exit 1
+fi
+f10 UP "$RESULT"
+
+ST="done" LIVE=0 ELAPSED=$SECS
+write_state

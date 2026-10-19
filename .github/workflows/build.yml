@@ -1,0 +1,90 @@
+name: Build
+
+on:
+  push:
+    branches: [ '**' ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: OpenWrt ${{ matrix.release }} (${{ matrix.format }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - release: '24.10'
+            format: ipk
+          - release: '25.12'
+            format: apk
+
+    steps:
+      # the directory name becomes the package name in luci.mk
+      - uses: actions/checkout@v4
+        with:
+          path: luci-app-yandex-speedtest
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk gettext \
+            libncurses-dev libssl-dev python3 python3-setuptools rsync unzip zlib1g-dev \
+            file wget zstd
+
+      - name: Download SDK
+        run: |
+          base=https://downloads.openwrt.org/releases
+          ver=$(curl -fsSL "$base/" | grep -oE "${{ matrix.release }}\.[0-9]+/" | tr -d / | sort -uV | tail -n1)
+          ver=${ver:-${{ matrix.release }}-SNAPSHOT}
+          url=$base/$ver/targets/x86/64
+          sdk=$(curl -fsSL "$url/" | grep -oE 'openwrt-sdk-[^"]+\.tar\.(zst|xz)' | head -n1)
+          echo "SDK: $url/$sdk"
+          curl -fsSL "$url/$sdk" -o sdk.tar
+          mkdir sdk
+          tar -xf sdk.tar -C sdk --strip-components=1
+          rm sdk.tar
+
+      - name: Build package
+        working-directory: sdk
+        run: |
+          ./scripts/feeds update base packages luci
+          ./scripts/feeds install luci-base curl rpcd
+          ln -s "$GITHUB_WORKSPACE/luci-app-yandex-speedtest" package/luci-app-yandex-speedtest
+          make defconfig
+          cat >> .config <<'EOF'
+          CONFIG_PACKAGE_luci-app-yandex-speedtest=m
+          CONFIG_PACKAGE_luci-i18n-yandex-speedtest-ru=m
+          # CONFIG_SIGNED_PACKAGES is not set
+          EOF
+          make defconfig
+          make package/luci-app-yandex-speedtest/compile V=s -j"$(nproc)"
+
+      - name: Collect packages
+        run: |
+          mkdir -p out
+          find sdk/bin -type f -name "*yandex-speedtest*.${{ matrix.format }}" -exec cp {} out/ \;
+          ls -la out
+          test -n "$(ls out)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: luci-app-yandex-speedtest-${{ matrix.release }}-${{ matrix.format }}
+          path: out/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

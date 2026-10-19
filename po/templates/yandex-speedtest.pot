@@ -1,0 +1,50 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8"
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:355
+msgid "Click to run again"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:153
+msgid "Click to show IP"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:162
+msgid "Click to start the test"
+msgstr ""
+
+#: root/usr/share/rpcd/acl.d/luci-app-yandex-speedtest.json:3
+msgid "Grant access to the Yandex speed test"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:181
+msgid "Mbps"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:351
+msgid "Preparing…"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:120
+msgid "Speed test"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:211
+msgid "Stopping…"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:353
+msgid "Testing, click to stop"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:115
+msgid "The test failed"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:113
+msgid "The test was interrupted"
+msgstr ""
+
+#: htdocs/luci-static/resources/view/status/include/25_yandex_speedtest.js:111
+msgid "curl is required: apk add curl / opkg install curl"
+msgstr ""

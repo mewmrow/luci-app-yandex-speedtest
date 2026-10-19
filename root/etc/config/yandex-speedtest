@@ -1,0 +1,7 @@
+
+config settings 'main'
+	option secs '15'
+	option streams '3'
+	option iface ''
+	option fallback_down 'https://speedtest.selectel.ru/1GB'
+	option fallback_up 'https://speedtest.rt.ru/backend/empty.php'
