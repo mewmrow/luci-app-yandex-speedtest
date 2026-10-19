@@ -19,18 +19,14 @@ fail() { echo "FAIL - $*"; echo "::error title=E2E $release::$*"; FAILS=$((FAILS
 x() { docker exec "$C" sh -c "$*"; }
 field() { echo "$1" | sed -nE "s/.*\"$2\": *\"?([^,\"}]*).*/\1/p"; }
 
-dump() { # diagnostics to the log and, since logs are not always at hand, to an annotation
+note() { # title, file -> warning annotation (GitHub keeps 4 KiB of it)
+	echo "::warning title=E2E $release $1::$(head -c 4000 "$2" | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+}
+
+dump() { # diagnostics to the log and, since logs are not always at hand, to annotations
 	{
-		echo "--- docker ps"; docker ps -a 2>&1
-		echo "--- docker logs"; docker logs "$C" 2>&1 | tail -n 50
-		echo "--- ps"; x 'ps w' 2>&1 | tail -n 40
-		echo "--- netstat"; x 'netstat -ltn' 2>&1
-		echo "--- ip addr"; x 'ip addr' 2>&1
-		echo "--- uhttpd"; x 'tr "\\0" " " < /proc/$(pidof uhttpd)/cmdline; echo; ls -la /www /www/cgi-bin' 2>&1
-		echo "--- static from inside"; x 'wget -T 5 -q -O - http://127.0.0.1/ | head -c 300' 2>&1
-		echo "--- LuCI from inside"; x 'wget -T 10 -q -O - http://127.0.0.1/cgi-bin/luci/ | head -c 300' 2>&1
 		echo "--- LuCI CGI run directly"
-		x 'cat /www/cgi-bin/luci; cd /www/cgi-bin
+		x 'cd /www/cgi-bin
 			REQUEST_METHOD=GET SCRIPT_NAME=/cgi-bin/luci PATH_INFO=/ REQUEST_URI=/cgi-bin/luci/ SERVER_NAME=x \
 			SERVER_PORT=80 REMOTE_ADDR=127.0.0.1 GATEWAY_INTERFACE=CGI/1.1 SERVER_PROTOCOL=HTTP/1.1 \
 				./luci < /dev/null > /tmp/cgi.out 2>&1 &
@@ -42,10 +38,17 @@ dump() { # diagnostics to the log and, since logs are not always at hand, to an 
 				ls -l /proc/$q/fd 2>&1 | sed "s/^/   /"
 			done
 			kill $p 2>/dev/null' 2>&1
-		echo "--- logread"; x 'logread' 2>&1 | tail -n 60
-	} > /tmp/e2e-dump.txt
-	cat /tmp/e2e-dump.txt
-	echo "::warning title=E2E $release diagnostics::$(sed -e 's/%/%25/g' /tmp/e2e-dump.txt | sed -e ':a;N;$!ba;s/\n/%0A/g')"
+		echo "--- ubus"; x 'ubus list' 2>&1 | head -n 30
+	} > /tmp/e2e-cgi.txt
+	{
+		echo "--- docker logs"; docker logs "$C" 2>&1 | tail -n 20
+		echo "--- ps"; x 'ps w' 2>&1 | tail -n 30
+		echo "--- ip addr"; x 'ip -4 addr' 2>&1
+		echo "--- logread"; x 'logread' 2>&1 | tail -n 30
+	} > /tmp/e2e-sys.txt
+	cat /tmp/e2e-cgi.txt /tmp/e2e-sys.txt
+	note "LuCI CGI" /tmp/e2e-cgi.txt
+	note "system" /tmp/e2e-sys.txt
 }
 
 die() { fail "$*"; dump; exit 1; }
