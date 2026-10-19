@@ -30,7 +30,18 @@ dump() { # diagnostics to the log and, since logs are not always at hand, to an 
 		echo "--- static from inside"; x 'wget -T 5 -q -O - http://127.0.0.1/ | head -c 300' 2>&1
 		echo "--- LuCI from inside"; x 'wget -T 10 -q -O - http://127.0.0.1/cgi-bin/luci/ | head -c 300' 2>&1
 		echo "--- LuCI CGI run directly"
-		x 'cd /www/cgi-bin; REQUEST_METHOD=GET SCRIPT_NAME=/cgi-bin/luci PATH_INFO=/ REQUEST_URI=/cgi-bin/luci/ SERVER_NAME=x SERVER_PORT=80 REMOTE_ADDR=127.0.0.1 GATEWAY_INTERFACE=CGI/1.1 SERVER_PROTOCOL=HTTP/1.1 timeout 15 ./luci < /dev/null 2>&1 | head -c 600; echo " [exit $?]"' 2>&1
+		x 'cat /www/cgi-bin/luci; cd /www/cgi-bin
+			REQUEST_METHOD=GET SCRIPT_NAME=/cgi-bin/luci PATH_INFO=/ REQUEST_URI=/cgi-bin/luci/ SERVER_NAME=x \
+			SERVER_PORT=80 REMOTE_ADDR=127.0.0.1 GATEWAY_INTERFACE=CGI/1.1 SERVER_PROTOCOL=HTTP/1.1 \
+				./luci < /dev/null > /tmp/cgi.out 2>&1 &
+			p=$!; sleep 10
+			echo "output:"; head -c 600 /tmp/cgi.out; echo
+			for q in $p $(cat /proc/[0-9]*/stat 2>/dev/null | awk -v p=$p "\$4 == p { print \$1 }"); do
+				[ -d /proc/$q ] || { echo "$q exited"; continue; }
+				echo "pid $q: $(tr "\\0" " " < /proc/$q/cmdline) wchan=$(cat /proc/$q/wchan) state=$(sed -n "s/^State:\t//p" /proc/$q/status)"
+				ls -l /proc/$q/fd 2>&1 | sed "s/^/   /"
+			done
+			kill $p 2>/dev/null' 2>&1
 		echo "--- logread"; x 'logread' 2>&1 | tail -n 60
 	} > /tmp/e2e-dump.txt
 	cat /tmp/e2e-dump.txt
