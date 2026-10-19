@@ -17,32 +17,6 @@ async function overview(page) {
 	const card = page.locator('.ys-card');
 	await card.waitFor({ timeout: 30000 });
 
-	// OpenWrt 25.12 asks once whether to check online for firmware upgrades;
-	// answer with the button that does not enable it
-	await page.waitForTimeout(1000);
-	const modal = page.locator('#modal_overlay .modal');
-	if (await modal.isVisible()) {
-		const buttons = modal.locator('button, .btn, .cbi-button');
-		const n = await buttons.count();
-		if (n == 0) {
-			console.log('closing modal without buttons: ' + (await modal.innerText()).slice(0, 300));
-			await page.keyboard.press('Escape');
-			return card;
-		}
-		let pick = n - 1;
-		for (let i = 0; i < n; i++) {
-			const cls = await buttons.nth(i).getAttribute('class') || '';
-			if (!/positive|apply|save|action/.test(cls)) {
-				pick = i;
-				break;
-			}
-		}
-		console.log('closing modal: ' + (await modal.locator('h4').innerText().catch(() => '?')) +
-			' -> ' + (await buttons.nth(pick).innerText()));
-		await buttons.nth(pick).click();
-		await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-	}
-
 	return card;
 }
 

@@ -113,6 +113,9 @@ if ! x "$install" > /tmp/e2e-install.txt 2>&1; then
 	die "package install failed"
 fi
 x 'rm -rf /tmp/luci-*; /etc/init.d/rpcd restart'
+# OpenWrt 25.12 asks on the overview whether to check for firmware upgrades online
+x 'uci -q get attendedsysupgrade.client > /dev/null &&
+	uci set attendedsysupgrade.client.login_check_for_upgrades=0 && uci commit attendedsysupgrade'
 sleep 2
 ok "packages installed"
 
