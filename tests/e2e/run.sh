@@ -38,7 +38,19 @@ dump() { # diagnostics to the log and, since logs are not always at hand, to ann
 				ls -l /proc/$q/fd 2>&1 | sed "s/^/   /"
 			done
 			kill $p 2>/dev/null' 2>&1
-		echo "--- ubus"; x 'ubus list' 2>&1 | head -n 30
+		echo "--- children of uhttpd during a request"
+		curl -s -m 25 -o /dev/null http://127.0.0.1:8080/cgi-bin/luci/ &
+		sleep 5
+		x 'u=$(pidof uhttpd); ps w | head -n 1
+			for q in $(cat /proc/[0-9]*/stat 2>/dev/null | awk "{ print \$1, \$4 }" | awk -v u=$u "\$2 == u { print \$1 }"); do
+				echo "pid $q: $(tr "\\0" " " < /proc/$q/cmdline) wchan=$(cat /proc/$q/wchan) state=$(sed -n "s/^State:\t//p" /proc/$q/status)"
+				ls -l /proc/$q/fd 2>&1 | sed "s/^/   /"
+				for k in $(cat /proc/[0-9]*/stat 2>/dev/null | awk -v q=$q "\$4 == q { print \$1 }"); do
+					echo "   child $k: $(tr "\\0" " " < /proc/$k/cmdline) wchan=$(cat /proc/$k/wchan)"
+				done
+			done
+			echo "uhttpd wchan=$(cat /proc/$u/wchan)"; grep -i -e cgi -e ucode -e lua /etc/config/uhttpd' 2>&1
+		wait
 	} > /tmp/e2e-cgi.txt
 	{
 		echo "--- docker logs"; docker logs "$C" 2>&1 | tail -n 20
