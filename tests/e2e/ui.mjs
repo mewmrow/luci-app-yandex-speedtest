@@ -53,9 +53,17 @@ try {
 			const why = await ip.evaluate(e => {
 				const r = e.getBoundingClientRect(), cs = getComputedStyle(e);
 				const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+				const chain = [];
+				for (let n = e; n && n != document.body; n = n.parentElement) {
+					const c = getComputedStyle(n);
+					chain.push(`${n.tagName}.${n.className}[pe=${c.pointerEvents},op=${c.opacity},z=${c.zIndex}]`);
+				}
+				const t = top ? getComputedStyle(top) : null;
 				return `box ${r.x|0},${r.y|0} ${r.width|0}x${r.height|0}, visibility ${cs.visibility}, ` +
-					`animation ${cs.animationName}, transition ${cs.transitionProperty}, ` +
-					`on top: ${top ? top.tagName + '.' + top.className : 'none'}`;
+					`animation ${cs.animationName}, transition ${cs.transitionProperty}; ` +
+					`on top: ${top ? top.outerHTML.slice(0, 300) : 'none'} ` +
+					(t ? `[pos=${t.position},z=${t.zIndex},contains card=${top.contains(e)}]` : '') +
+					`; ancestors: ${chain.join(' < ')}`;
 			});
 			check(false, 'IP element is not stable for Playwright: ' + why);
 			await ip.click({ force: true });
