@@ -46,7 +46,9 @@ rm -rf /tmp/luci-*; /etc/init.d/rpcd restart
 
 `curl` ставится зависимостью.
 
-Новая версия выходит так: поднять `PKG_VERSION` в `Makefile` и запушить тег `vX.Y.Z` с тем же номером.
+Новая версия выходит так: поднять `PKG_VERSION` в `Makefile`, затем либо
+**Actions → Build → Run workflow** (выбрать ветку) — сборка создаст релиз `vPKG_VERSION` с тегом,
+либо запушить тег `vX.Y.Z` с тем же номером.
 
 ## Настройки
 

@@ -1,18 +1,28 @@
 #!/bin/sh
 # Publish the built packages in dist/ as a GitHub release:
-#   tag vX.Y.Z      -> release vX.Y.Z (tag must match PKG_VERSION)
-#   default branch  -> pre-release "dev", replaced on every push
+#   tag vX.Y.Z           -> release vX.Y.Z (tag must match PKG_VERSION)
+#   manual run (Actions) -> release vPKG_VERSION from the chosen branch, tag created
+#   default branch push  -> pre-release "dev", replaced on every push
 set -e
 
-if [ "$GITHUB_REF_TYPE" = tag ]; then
-	tag=$GITHUB_REF_NAME
-	ver=$(sed -n 's/^PKG_VERSION:=//p' Makefile)
+ver=$(sed -n 's/^PKG_VERSION:=//p' Makefile)
+
+if [ "$GITHUB_REF_TYPE" = tag ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+	if [ "$GITHUB_REF_TYPE" = tag ]; then
+		tag=$GITHUB_REF_NAME
+		target=''
+	else
+		tag=v$ver
+		target=$GITHUB_SHA
+	fi
 	if [ "$tag" != "v$ver" ]; then
 		echo "::error::tag $tag does not match PKG_VERSION $ver in Makefile"
 		exit 1
 	fi
 	if gh release view "$tag" > /dev/null 2>&1; then
 		gh release upload "$tag" dist/* --clobber
+	elif [ -n "$target" ]; then
+		gh release create "$tag" dist/* --target "$target" --title "$tag" --notes ''
 	else
 		gh release create "$tag" dist/* --verify-tag --title "$tag" --notes ''
 	fi
