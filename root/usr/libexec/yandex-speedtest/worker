@@ -17,6 +17,7 @@ DEF_UP=https://speedtest.rt.ru/backend/empty.php
 
 ST=prepare LIVE=0 DOWN=null UP=null PING=null IP='' SERVER='' HOSTS='' ELAPSED=0 ERR=''
 SECS=15 STREAMS=3 DEV='' CURL_IF='' STREAM_PIDS=''
+UL_SIZES='262144 524288 1048576 2097152 4194304 8388608 16777216 33554432'
 
 cfg() { # option default
 	v=$(uci -q get "yandex-speedtest.main.$1" 2>/dev/null)
@@ -176,29 +177,48 @@ dl_stream() { # url deadline outfile
 	done
 }
 
-ul_stream() { # url deadline outfile
-	size=262144
-	while [ ! -e "$STOP" ]; do
-		now_cs
-		rem=$(($2 - NOW))
-		[ "$rem" -ge 50 ] || break
-		r=$(dd if=/dev/zero bs=65536 count=$((size / 65536)) 2>/dev/null |
-			ycurl -f -o /dev/null -m "$((rem / 100)).$((rem % 100 / 10))" \
-				-X POST -T - -H 'Expect:' -H 'Content-Type: application/octet-stream' \
-				-w '%{size_upload} %{time_total} %{time_pretransfer}' "$1" 2>/dev/null)
-		rc=$?
-		[ "$rc" = 0 ] || break
-
-		# only finished requests count: a request cut by the deadline has
-		# "uploaded" bytes that are still sitting in the socket buffer
-		echo "$r" >> "$3"
-
-		# grow the request until one takes about two seconds
-		t=${r#* }
-		t=${t%% *}
-		t=${t%%.*}
-		[ "${t:-0}" -lt 2 ] && [ "$size" -lt 33554432 ] && size=$((size * 2))
+ul_files() { # sparse files of each upload size: read as zeros, take no memory on tmpfs
+	for size in $UL_SIZES; do
+		dd of="$RUN/zero.$size" bs=1 count=0 seek="$size" 2>/dev/null
 	done
+}
+
+ul_config() { # url outfile -> curl config with POSTs of growing size
+	{
+		# then 80 more of the largest size: enough for 1 Gbit/s per stream
+		sizes=$UL_SIZES
+		n=0
+		while [ "$n" -lt 80 ]; do
+			sizes="$sizes ${UL_SIZES##* }"
+			n=$((n + 1))
+		done
+		n=0
+		for size in $sizes; do
+			[ "$n" = 0 ] || echo next
+			n=$((n + 1))
+			echo "url = \"$1\""
+			echo "upload-file = \"$RUN/zero.$size\""
+			echo 'request = "POST"'
+			echo 'header = "Expect:"'
+			echo 'header = "Content-Type: application/octet-stream"'
+			echo "user-agent = \"$UA\""
+			echo 'connect-timeout = 5'
+			[ -n "$CURL_IF" ] && echo "interface = \"$CURL_IF\""
+			echo 'fail'
+			echo 'output = "/dev/null"'
+			# straight to the file: stdout is buffered and lost when curl is stopped
+			printf '%s\n' "write-out = \"%output{>>$2}%{size_upload} %{time_total} %{time_pretransfer}\\n\""
+		done
+	}
+}
+
+ul_stream() { # url deadline outfile
+	# one curl, one connection: no handshake and slow start per request.
+	# The phase stops it at the deadline; only finished requests are written
+	# out, a cut one has "uploaded" bytes still sitting in the socket buffer
+	cfg="$RUN/ul.${3##*.}.cfg"
+	ul_config "$1" "$3" > "$cfg"
+	curl -sS -K "$cfg" > /dev/null 2>&1
 }
 
 descendants() { # pid... -> the pids and all their children
@@ -244,6 +264,7 @@ run_phase() { # down|up url
 	ST=$1 LIVE=0 ELAPSED=0
 	rm -f "$RUN/$1".*
 	write_state
+	[ "$1" = up ] && ul_files
 
 	now_cs
 	start=$NOW
@@ -260,7 +281,7 @@ run_phase() { # down|up url
 		STREAM_PIDS="$STREAM_PIDS $!"
 	done
 
-	[ "$1" = down ] && dir=rx || dir=tx
+	if [ "$1" = down ]; then dir=rx grace=1000; else dir=tx grace=0; fi
 	read_counter "$dir"
 	prev=$C prev_t=$start
 
@@ -286,8 +307,9 @@ run_phase() { # down|up url
 		f10 ELAPSED $((el / 10))
 		write_state
 
-		# streams stop on their own at the deadline, this is a safety net
-		[ "$NOW" -le $((deadline + 1000)) ] || stop_streams
+		# download streams stop on their own at the deadline (the safety net
+		# here gives them 10 s more), upload streams are stopped right at it
+		[ "$NOW" -le $((deadline + grace)) ] || stop_streams
 	done
 	STREAM_PIDS=''
 
@@ -301,7 +323,7 @@ cleanup() {
 	case "$ST" in
 	prepare|down|up) ST=error LIVE=0 ERR=aborted; write_state ;;
 	esac
-	rm -f "$RUN"/down.* "$RUN"/up.*
+	rm -f "$RUN"/down.* "$RUN"/up.* "$RUN"/zero.* "$RUN"/ul.*
 	rm -rf "$LOCK"
 }
 

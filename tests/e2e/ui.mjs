@@ -29,9 +29,13 @@ try {
 	await page.goto(BASE + '/');
 	await page.fill('input[name=luci_username]', 'root');
 	await page.fill('input[name=luci_password]', '');
-	await page.press('input[name=luci_password]', 'Enter');
-	await page.waitForURL(/\/admin\//, { timeout: 30000 });
-	check(true, 'logged in');
+	// LuCI keeps the /cgi-bin/luci/ address after login, wait for the page instead
+	await Promise.all([
+		page.waitForNavigation({ timeout: 30000 }),
+		page.press('input[name=luci_password]', 'Enter')
+	]);
+	check(await page.locator('input[name=luci_password]').count() == 0, 'logged in');
+	errors.length = 0; /* the login page itself is not ours */
 
 	const card = await overview(page);
 	const title = await page.locator('.cbi-section h3', { has: page.locator('text=Тест скорости') }).count();
