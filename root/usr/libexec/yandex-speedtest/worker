@@ -199,6 +199,8 @@ ul_config() { # url outfile -> curl config with POSTs of growing size
 			echo "url = \"$1\""
 			echo "upload-file = \"$RUN/zero.$size\""
 			echo 'request = "POST"'
+			# HTTP/2 caps an upload at the server's stream window per round trip
+			echo 'http1.1'
 			echo 'header = "Expect:"'
 			echo 'header = "Content-Type: application/octet-stream"'
 			echo "user-agent = \"$UA\""
@@ -365,7 +367,7 @@ probe() {
 	ycurl -o /dev/null -m 3 -w 'http %{http_code}, %{size_download} bytes, %{time_total} s, %{remote_ip}\n' "$DOWN_URL" 2>&1
 	echo "== upload 1 MiB"
 	dd if=/dev/zero bs=65536 count=16 2>/dev/null |
-		ycurl -o /dev/null -m 10 -X POST -T - -H 'Expect:' -H 'Content-Type: application/octet-stream' \
+		ycurl -o /dev/null -m 10 --http1.1 -X POST -T - -H 'Expect:' -H 'Content-Type: application/octet-stream' \
 			-w 'http %{http_code}, %{size_upload} bytes, %{time_total} s, %{remote_ip}\n' "$UP_URL" 2>&1
 }
 

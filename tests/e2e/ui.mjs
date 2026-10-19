@@ -22,8 +22,13 @@ async function overview(page) {
 	await page.waitForTimeout(1000);
 	const modal = page.locator('#modal_overlay .modal');
 	if (await modal.isVisible()) {
-		const buttons = modal.locator('button');
+		const buttons = modal.locator('button, .btn, .cbi-button');
 		const n = await buttons.count();
+		if (n == 0) {
+			console.log('closing modal without buttons: ' + (await modal.innerText()).slice(0, 300));
+			await page.keyboard.press('Escape');
+			return card;
+		}
 		let pick = n - 1;
 		for (let i = 0; i < n; i++) {
 			const cls = await buttons.nth(i).getAttribute('class') || '';
