@@ -80,10 +80,11 @@ try {
 
 	// full run from the UI
 	await card.click();
+	await page.waitForSelector('.ys-card.ys-running', { timeout: 5000 });
 	await page.waitForSelector('.ys-card:not(.ys-running)', { timeout: 90000 });
-	const done = await page.locator('.ys-card').innerText();
-	check(/\d+\.\d.*\d+\.\d/s.test(done), 'full run shows both numbers: ' + done.replace(/\s+/g, ' '));
-	await page.waitForTimeout(1500);
+	await page.waitForTimeout(1500); /* number animation */
+	const done = await page.locator('.ys-speed').innerText();
+	check(/^\d+\.\d ↓\s*\|\s*\d+\.\d ↑/.test(done), 'full run shows both numbers: ' + done.replace(/\s+/g, ' '));
 	await page.screenshot({ path: shot + '-done.png', fullPage: true });
 
 	// settings page
@@ -97,7 +98,7 @@ try {
 	await page.waitForTimeout(8000);
 }
 catch (e) {
-	check(false, 'exception: ' + e.message.split('\n')[0]);
+	check(false, 'exception: ' + e.message.split('\n').filter(l => l.trim()).slice(0, 6).join(' / '));
 	await page.screenshot({ path: shot + '-error.png', fullPage: true }).catch(() => {});
 }
 
