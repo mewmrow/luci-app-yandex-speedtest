@@ -25,6 +25,8 @@ dump() { # diagnostics to the log and, since logs are not always at hand, to an 
 		echo "--- docker logs"; docker logs "$C" 2>&1 | tail -n 50
 		echo "--- ps"; x 'ps w' 2>&1 | tail -n 40
 		echo "--- netstat"; x 'netstat -ltn' 2>&1
+		echo "--- ip addr"; x 'ip addr' 2>&1
+		echo "--- wget inside"; x 'wget -S -O /dev/null http://127.0.0.1/cgi-bin/luci/' 2>&1 | head -n 20
 		echo "--- logread"; x 'logread' 2>&1 | tail -n 60
 	} > /tmp/e2e-dump.txt
 	cat /tmp/e2e-dump.txt
@@ -66,9 +68,13 @@ EOF
 docker run -d --name "$C" --privileged -p 8080:80 openwrt-e2e /sbin/init > /dev/null || die "docker run failed"
 
 i=60
-until curl -fs -o /dev/null http://127.0.0.1:8080/cgi-bin/luci/; do
+until [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/cgi-bin/luci/)" = 200 ]; do
 	i=$((i - 1))
-	[ "$i" -gt 0 ] || die "LuCI did not come up"
+	if [ "$i" -le 0 ]; then
+		curl -sv http://127.0.0.1:8080/cgi-bin/luci/ 2>&1 | head -n 40 > /tmp/e2e-curl.txt
+		echo "::warning title=E2E $release curl::$(sed -e ':a;N;$!ba;s/\n/%0A/g' /tmp/e2e-curl.txt)"
+		die "LuCI did not come up"
+	fi
 	sleep 1
 done
 ok "OpenWrt $release is up, LuCI answers"
